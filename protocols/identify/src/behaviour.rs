@@ -39,10 +39,33 @@ use libp2p_swarm::{
     THandlerOutEvent, ToSwarm, _address_translation,
 };
 
+use std::net::Ipv6Addr;
+
 use crate::{
     handler::{self, Handler, InEvent},
     protocol::{Info, UpgradeError},
 };
+
+/// Returns true if the address contains only globally routable IP addresses.
+/// Addresses without IP components (e.g. DNS, p2p-circuit) are accepted.
+fn is_globally_routable_addr(addr: &Multiaddr) -> bool {
+    addr.iter().all(|proto| match proto {
+        Protocol::Ip4(ip) => {
+            !ip.is_loopback()
+                && !ip.is_private()
+                && !ip.is_link_local()
+                && !ip.is_unspecified()
+                && !ip.is_broadcast()
+                && !matches!(ip.octets(), [100, b, ..] if b >= 64 && b <= 127) // CGNAT
+                && !matches!(ip.octets(), [169, 254, ..]) // link-local
+                && !matches!(ip.octets(), [192, 0, 0, ..]) // IETF protocol
+                && !matches!(ip.octets(), [198, 51, 100, ..]) // TEST-NET-2
+                && !matches!(ip.octets(), [203, 0, 113, ..]) // TEST-NET-3
+        }
+        Protocol::Ip6(ip) => !ip.is_loopback() && !ip.is_unspecified() && ip != Ipv6Addr::LOCALHOST,
+        _ => true,
+    })
+}
 
 /// Whether an [`Multiaddr`] is a valid for the QUIC transport.
 fn is_quic_addr(addr: &Multiaddr, v1: bool) -> bool {
@@ -492,6 +515,10 @@ impl NetworkBehaviour for Behaviour {
                 // Remove invalid multiaddrs.
                 info.listen_addrs
                     .retain(|addr| multiaddr_matches_peer_id(addr, &peer_id));
+
+                // Filter non-globally-routable addresses (loopback, private, link-local)
+                // before they reach the peerstore via NewExternalAddrOfPeer.
+                info.listen_addrs.retain(is_globally_routable_addr);
 
                 let observed = info.observed_addr.clone();
                 self.events
