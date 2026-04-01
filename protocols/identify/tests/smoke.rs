@@ -221,9 +221,14 @@ async fn emits_unique_listen_addresses() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(reported_addrs.len(), 2, "To have two addresses of remote");
+    // Only the memory address passes the global-routability filter (no IP component).
+    // The TCP address on 127.0.0.1 is filtered out as non-global.
+    assert_eq!(
+        reported_addrs.len(),
+        1,
+        "Only globally-routable addresses should appear in NewExternalAddrOfPeer"
+    );
     assert!(reported_addrs.contains(&(swarm2_peer_id, swarm2_mem_listen_addr)));
-    assert!(reported_addrs.contains(&(swarm2_peer_id, swarm2_tcp_listen_addr)));
 }
 
 #[tokio::test]
@@ -250,7 +255,6 @@ async fn hides_listen_addresses() {
 
     let (_swarm2_mem_listen_addr, swarm2_tcp_listen_addr) =
         swarm2.listen().with_tcp_addr_external().await;
-    let swarm2_peer_id = *swarm2.local_peer_id();
     swarm1.connect(&mut swarm2).await;
 
     tokio::spawn(swarm2.loop_on_next());
@@ -293,8 +297,12 @@ async fn hides_listen_addresses() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(reported_addrs.len(), 1, "To have one TCP address of remote");
-    assert!(reported_addrs.contains(&(swarm2_peer_id, swarm2_tcp_listen_addr)));
+    // 127.0.0.1 is non-global, so the TCP address should not appear in NewExternalAddrOfPeer.
+    assert_eq!(
+        reported_addrs.len(),
+        0,
+        "Non-global addresses should not appear in NewExternalAddrOfPeer"
+    );
 }
 
 #[tokio::test]

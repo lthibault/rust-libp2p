@@ -516,10 +516,6 @@ impl NetworkBehaviour for Behaviour {
                 info.listen_addrs
                     .retain(|addr| multiaddr_matches_peer_id(addr, &peer_id));
 
-                // Filter non-globally-routable addresses (loopback, private, link-local)
-                // before they reach the peerstore via NewExternalAddrOfPeer.
-                info.listen_addrs.retain(is_globally_routable_addr);
-
                 let observed = info.observed_addr.clone();
                 self.events
                     .push_back(ToSwarm::GenerateEvent(Event::Received {
@@ -528,8 +524,14 @@ impl NetworkBehaviour for Behaviour {
                         info: info.clone(),
                     }));
 
+                // Filter non-globally-routable addresses (loopback, private, link-local)
+                // before they reach the peerstore via NewExternalAddrOfPeer.
                 if let Some(ref mut discovered_peers) = self.discovered_peers.0 {
-                    for address in &info.listen_addrs {
+                    for address in info
+                        .listen_addrs
+                        .iter()
+                        .filter(|addr| is_globally_routable_addr(addr))
+                    {
                         if discovered_peers.add(peer_id, address.clone()) {
                             self.events.push_back(ToSwarm::NewExternalAddrOfPeer {
                                 peer_id,
